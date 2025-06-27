@@ -5,7 +5,7 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id = data.aws_caller_identity.current.account_id
   partition  = data.aws_partition.current.partition
-  region     = data.aws_region.current.name
+  region     = data.aws_region.current.region
 }
 
 ################################################################################
@@ -631,15 +631,6 @@ resource "aws_ecs_task_definition" "this" {
 
   execution_role_arn = try(aws_iam_role.task_exec[0].arn, var.task_exec_iam_role_arn)
   family             = coalesce(var.family, var.name)
-
-  dynamic "inference_accelerator" {
-    for_each = var.inference_accelerator
-
-    content {
-      device_name = inference_accelerator.value.device_name
-      device_type = inference_accelerator.value.device_type
-    }
-  }
 
   ipc_mode     = var.ipc_mode
   memory       = var.memory
