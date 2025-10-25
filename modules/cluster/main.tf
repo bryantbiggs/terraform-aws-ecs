@@ -16,6 +16,21 @@ locals {
   region     = try(data.aws_region.current[0].region, "")
 }
 
+# This sleep resource is used to provide a timed gap between the cluster creation and the downstream dependencies
+# that consume the outputs from here. Any of the values that are used as triggers can be used in dependencies
+# to ensure that the downstream resources are created after both the cluster is ready and the sleep time has passed.
+# This was primarily added to give addons that need to be configured BEFORE data plane compute resources
+# enough time to create and configure themselves before the data plane compute resources are created.
+resource "time_sleep" "this" {
+  count = var.create ? 1 : 0
+
+  create_duration = var.cluster_capacity_providers_wait_duration
+
+  triggers = {
+    name = aws_ecs_cluster.this[0].name
+  }
+}
+
 ################################################################################
 # Cluster
 ################################################################################
@@ -114,9 +129,17 @@ resource "aws_cloudwatch_log_group" "this" {
 ################################################################################
 
 locals {
-  # TODO - is this correct?!
-  # Only the AutoScaling group capacity providers need to be associated with the cluster
-  auto_scaling_group_providers = local.capacity_providers != null ? [for k, v in local.capacity_providers : try(coalesce(v.name, k)) if v.auto_scaling_group_provider != null] : []
+  # `managed_instances_provider` are automatically associated with clusters and
+  # will cause an error if you try to associate by passing to `capacity_providers` below.
+  auto_scaling_group_provider_names = local.capacity_providers != null ? [for k, v in local.capacity_providers : try(coalesce(v.name, k)) if v.auto_scaling_group_provider != null] : []
+  managed_instances_provider_names  = local.capacity_providers != null ? [for k, v in local.capacity_providers : try(coalesce(v.name, k)) if v.managed_instances_provider != null] : []
+  default_capacity_provider_names   = [for k, v in var.default_capacity_provider_strategy : try(coalesce(v.name, k))]
+
+  # Grab all providers but ensure `managed_instances_provider` name's are excluded
+  cluster_capacity_providers = [for name in distinct(concat(
+    local.default_capacity_provider_names,
+    local.auto_scaling_group_provider_names
+  )) : name if !contains(local.managed_instances_provider_names, name)]
 }
 
 resource "aws_ecs_cluster_capacity_providers" "this" {
@@ -124,11 +147,8 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
 
   region = var.region
 
-  cluster_name = aws_ecs_cluster.this[0].name
-  capacity_providers = distinct(concat(
-    [for k, v in var.default_capacity_provider_strategy : try(coalesce(v.name, k))],
-    local.auto_scaling_group_providers
-  ))
+  cluster_name       = time_sleep.this[0].triggers["name"]
+  capacity_providers = local.cluster_capacity_providers
 
   # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/cluster-capacity-providers.html#capacity-providers-considerations
   dynamic "default_capacity_provider_strategy" {
@@ -137,7 +157,7 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
     content {
       base              = default_capacity_provider_strategy.value.base
       capacity_provider = try(coalesce(default_capacity_provider_strategy.value.name, default_capacity_provider_strategy.key))
-      weight            = default_capacity_provider_strategy.value.weight
+      weight            = coalesce(default_capacity_provider_strategy.value.weight, 1)
     }
   }
 
@@ -349,8 +369,7 @@ resource "aws_ecs_capacity_provider" "this" {
     }
   }
 
-  # cluster = each.value.managed_instances_provider != null ? aws_ecs_cluster.this[0].id : null
-  cluster = aws_ecs_cluster.this[0].name
+  cluster = each.value.managed_instances_provider != null ? aws_ecs_cluster.this[0].name : null
 
   name = try(coalesce(each.value.name, each.key), "")
 
@@ -358,6 +377,11 @@ resource "aws_ecs_capacity_provider" "this" {
     var.tags,
     each.value.tags,
   )
+
+  depends_on = [
+    aws_iam_role_policy_attachment.infrastructure,
+    aws_iam_role_policy_attachment.node,
+  ]
 }
 
 ################################################################################
@@ -524,7 +548,7 @@ locals {
   infrastructure_iam_role_name = coalesce(var.infrastructure_iam_role_name, "${var.name}-infra", "NotProvided")
 }
 
-data "aws_iam_policy_document" "infrastructure" {
+data "aws_iam_policy_document" "infrastructure_assume" {
   count = local.create_infrastructure_iam_role ? 1 : 0
 
   statement {
@@ -549,19 +573,228 @@ resource "aws_iam_role" "infrastructure" {
   path        = var.infrastructure_iam_role_path
   description = coalesce(var.infrastructure_iam_role_description, "Amazon ECS infrastructure IAM role that is used to manage your infrastructure (managed instances)")
 
-  assume_role_policy    = data.aws_iam_policy_document.infrastructure[0].json
+  assume_role_policy    = data.aws_iam_policy_document.infrastructure_assume[0].json
   permissions_boundary  = var.infrastructure_iam_role_permissions_boundary
   force_detach_policies = true
 
   tags = merge(var.tags, var.infrastructure_iam_role_tags)
 }
 
-# https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonECSInfrastructureRolePolicyForManagedInstances.html
-resource "aws_iam_role_policy_attachment" "infrastructure_managed_instances" {
+################################################################################
+# Infrastructure IAM role policy
+#
+# The managed policy requires role names to start with `ecsInstanceRole`
+# So we are duplicating the policy here to avoid that unfortunate and surprising requirement
+#
+# Ref: https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonECSInfrastructureRolePolicyForManagedInstances.html
+################################################################################
+
+data "aws_iam_policy_document" "infrastructure" {
   count = local.create_infrastructure_iam_role ? 1 : 0
 
+  source_policy_documents   = var.infrastructure_iam_role_source_policy_documents
+  override_policy_documents = var.infrastructure_iam_role_override_policy_documents
+
+  statement {
+    sid       = "CreateLaunchTemplateForManagedInstances"
+    actions   = ["ec2:CreateLaunchTemplate"]
+    resources = ["arn:${local.partition}:ec2:${local.region}:${local.account_id}:launch-template/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/AmazonECSManaged"
+      values   = [true]
+    }
+  }
+
+  statement {
+    sid = "CreateLaunchTemplateVersionsForManagedInstances"
+    actions = [
+      "ec2:CreateLaunchTemplateVersion",
+      "ec2:ModifyLaunchTemplate",
+    ]
+    resources = ["arn:${local.partition}:ec2:${local.region}:${local.account_id}:launch-template/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ManagedResourceOperator"
+      values   = ["ecs.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid     = "ProvisionEC2InstancesForManagedInstances"
+    actions = ["ec2:CreateFleet"]
+    resources = [
+      "arn:${local.partition}:ec2:${local.region}:*:fleet/*",
+      "arn:${local.partition}:ec2:${local.region}:*:instance/*",
+      "arn:${local.partition}:ec2:${local.region}:*:network-interface/*",
+      "arn:${local.partition}:ec2:${local.region}:*:launch-template/*",
+      "arn:${local.partition}:ec2:${local.region}:*:security-group/*",
+      "arn:${local.partition}:ec2:${local.region}:*:subnet/*",
+      "arn:${local.partition}:ec2:${local.region}:*:volume/*",
+      "arn:${local.partition}:ec2:${local.region}:*:image/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/AmazonECSManaged"
+      values   = [true]
+    }
+  }
+
+  statement {
+    sid     = "RunInstancesForManagedInstances"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:${local.partition}:ec2:${local.region}:*:instance/*",
+      "arn:${local.partition}:ec2:${local.region}:*:volume/*",
+      "arn:${local.partition}:ec2:${local.region}:*:network-interface/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/AmazonECSManaged"
+      values   = [true]
+    }
+  }
+
+  statement {
+    sid       = "RunInstancesForECSManagedLaunchTemplates"
+    actions   = ["ec2:RunInstances"]
+    resources = ["arn:${local.partition}:ec2:${local.region}:*:launch-template/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/AmazonECSManaged"
+      values   = [true]
+    }
+  }
+
+  statement {
+    sid     = "RunInstancesForSupportingResources"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:${local.partition}:ec2:${local.region}:*:subnet/*",
+      "arn:${local.partition}:ec2:${local.region}:*:security-group/*",
+      "arn:${local.partition}:ec2:${local.region}:*:image/*",
+    ]
+  }
+
+  statement {
+    sid     = "TagOnCreateEC2ResourcesForManagedInstances"
+    actions = ["ec2:CreateTags"]
+    resources = [
+      "arn:${local.partition}:ec2:${local.region}:*:fleet/*",
+      "arn:${local.partition}:ec2:${local.region}:*:launch-template/*",
+      "arn:${local.partition}:ec2:${local.region}:*:network-interface/*",
+      "arn:${local.partition}:ec2:${local.region}:*:instance/*",
+      "arn:${local.partition}:ec2:${local.region}:*:volume/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:CreateAction"
+      values = [
+        "CreateFleet",
+        "CreateLaunchTemplate",
+        "RunInstances",
+      ]
+    }
+  }
+
+  statement {
+    sid       = "PassInstanceRoleForManagedInstances"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.node[0].arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ec2.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "CreateServiceLinkedRoleForEC2Spot"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["arn:${local.partition}:iam::${local.account_id}:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot"]
+  }
+
+  statement {
+    sid = "DescribeEC2ResourcesManagedByECS"
+    actions = [
+      "ec2:DescribeInstances",
+      "ec2:DescribeInstanceTypes",
+      "ec2:DescribeLaunchTemplates",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DescribeInstanceTypeOfferings",
+      "ec2:DescribeAvailabilityZones",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeVpcs",
+    ]
+    resources = ["*"]
+  }
+
+  dynamic "statement" {
+    for_each = var.infrastructure_iam_role_statements != null ? var.infrastructure_iam_role_statements : {}
+
+    content {
+      sid           = try(coalesce(statement.value.sid, statement.key))
+      actions       = statement.value.actions
+      not_actions   = statement.value.not_actions
+      effect        = statement.value.effect
+      resources     = statement.value.resources
+      not_resources = statement.value.not_resources
+
+      dynamic "principals" {
+        for_each = statement.value.principals != null ? statement.value.principals : []
+
+        content {
+          type        = principals.value.type
+          identifiers = principals.value.identifiers
+        }
+      }
+
+      dynamic "not_principals" {
+        for_each = statement.value.not_principals != null ? statement.value.not_principals : []
+
+        content {
+          type        = not_principals.value.type
+          identifiers = not_principals.value.identifiers
+        }
+      }
+
+      dynamic "condition" {
+        for_each = statement.value.condition != null ? statement.value.condition : []
+
+        content {
+          test     = condition.value.test
+          values   = condition.value.values
+          variable = condition.value.variable
+        }
+      }
+    }
+  }
+}
+
+resource "aws_iam_policy" "infrastructure" {
+  count = local.create_infrastructure_iam_role ? 1 : 0
+
+  name        = var.infrastructure_iam_role_use_name_prefix ? null : local.infrastructure_iam_role_name
+  name_prefix = var.infrastructure_iam_role_use_name_prefix ? "${local.infrastructure_iam_role_name}-" : null
+  description = coalesce(var.infrastructure_iam_role_description, "ECS Managed Instances infrastructure role permissions")
+  policy      = data.aws_iam_policy_document.infrastructure[0].json
+
+  tags = merge(var.tags, var.infrastructure_iam_role_tags)
+}
+
+resource "aws_iam_role_policy_attachment" "infrastructure" {
+  count = local.create_infrastructure_iam_role ? 1 : 0
+
+  policy_arn = aws_iam_policy.infrastructure[0].arn
   role       = aws_iam_role.infrastructure[0].name
-  policy_arn = "arn:${local.partition}:iam::aws:policy/AmazonECSInfrastructureRolePolicyForManagedInstances"
 }
 
 ################################################################################
