@@ -34,10 +34,10 @@ resource "time_sleep" "this" {
 resource "time_sleep" "this_2" {
   count = var.create ? 1 : 0
 
-  create_duration = var.cluster_capacity_providers_wait_duration
+  create_duration = var.wait_duration
 
   triggers = {
-    name = aws_ecs_capacity_provider.this.arn
+    capacity_providers = jsonencode([for cp in aws_ecs_capacity_provider.this : cp.id])
   }
 }
 
