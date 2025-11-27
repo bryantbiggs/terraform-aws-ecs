@@ -37,7 +37,7 @@ resource "time_sleep" "this_2" {
   create_duration = var.cluster_capacity_providers_wait_duration
 
   triggers = {
-    name = aws_ecs_capacity_provider.this[0].arn
+    name = aws_ecs_capacity_provider.this.arn
   }
 }
 
