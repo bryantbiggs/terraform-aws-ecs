@@ -31,6 +31,16 @@ resource "time_sleep" "this" {
   }
 }
 
+resource "time_sleep" "this_2" {
+  count = var.create ? 1 : 0
+
+  create_duration = var.cluster_capacity_providers_wait_duration
+
+  triggers = {
+    name = aws_ecs_capacity_provider.this[0].arn
+  }
+}
+
 ################################################################################
 # Cluster
 ################################################################################
@@ -162,7 +172,8 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
   }
 
   depends_on = [
-    aws_ecs_capacity_provider.this
+    aws_ecs_capacity_provider.this,
+    time_sleep.this_2
   ]
 }
 
