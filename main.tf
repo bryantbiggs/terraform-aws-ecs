@@ -252,6 +252,6 @@ module "service" {
   tags = merge(var.tags, each.value.tags)
 
   depends_on = [
-    time_sleep.this[0].triggers["capacity_providers"]
+    time_sleep.this[0]
   ]
 }

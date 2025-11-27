@@ -28,7 +28,7 @@ locals {
 module "ecs_cluster" {
   source = "../../modules/cluster"
 
-  name = local.name
+  cluster_name = local.name
 
   capacity_providers = {
     mi-example = {

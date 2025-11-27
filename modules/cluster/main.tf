@@ -1018,19 +1018,19 @@ resource "aws_vpc_security_group_ingress_rule" "this" {
 
   region = var.region
 
-  cidr_ipv4                    = each.value.cidr_ipv4
-  cidr_ipv6                    = each.value.cidr_ipv6
-  description                  = each.value.description
-  from_port                    = each.value.from_port
+  cidr_ipv4                    = try(each.value.cidr_ipv4, null)
+  cidr_ipv6                    = try(each.value.cidr_ipv6, null)
+  description                  = try(each.value.description, null)
+  from_port                    = try(each.value.from_port, null)
   ip_protocol                  = each.value.ip_protocol
-  prefix_list_id               = each.value.prefix_list_id
-  referenced_security_group_id = each.value.referenced_security_group_id == "self" ? aws_security_group.this[0].id : each.value.referenced_security_group_id
+  prefix_list_id               = try(each.value.prefix_list_id, null)
+  referenced_security_group_id = try(each.value.referenced_security_group_id == "self" ? aws_security_group.this[0].id : each.value.referenced_security_group_id, null)
   security_group_id            = aws_security_group.this[0].id
   tags = merge(
     var.tags,
     var.security_group_tags,
     { "Name" = coalesce(each.value.name, "${local.security_group_name}-${each.key}") },
-    each.value.tags
+    try(each.value.tags, {})
   )
   to_port = try(coalesce(each.value.to_port, each.value.from_port), null)
 }
@@ -1040,19 +1040,19 @@ resource "aws_vpc_security_group_egress_rule" "this" {
 
   region = var.region
 
-  cidr_ipv4                    = each.value.cidr_ipv4
-  cidr_ipv6                    = each.value.cidr_ipv6
-  description                  = each.value.description
+  cidr_ipv4                    = try(each.value.cidr_ipv4, null)
+  cidr_ipv6                    = try(each.value.cidr_ipv6, null)
+  description                  = try(each.value.description, null)
   from_port                    = try(coalesce(each.value.from_port, each.value.to_port), null)
   ip_protocol                  = each.value.ip_protocol
-  prefix_list_id               = each.value.prefix_list_id
-  referenced_security_group_id = each.value.referenced_security_group_id == "self" ? aws_security_group.this[0].id : each.value.referenced_security_group_id
+  prefix_list_id               = try(each.value.prefix_list_id, null)
+  referenced_security_group_id = try(each.value.referenced_security_group_id == "self" ? aws_security_group.this[0].id : each.value.referenced_security_group_id, null)
   security_group_id            = aws_security_group.this[0].id
   tags = merge(
     var.tags,
     var.security_group_tags,
     { "Name" = coalesce(each.value.name, "${local.security_group_name}-${each.key}") },
-    each.value.tags
+    try(each.value.tags, {})
   )
-  to_port = each.value.to_port
+  to_port = try(each.value.to_port, null)
 }
