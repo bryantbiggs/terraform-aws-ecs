@@ -9,7 +9,7 @@ resource "time_sleep" "this" {
   create_duration = var.wait_duration
 
   triggers = {
-    capacity_providers = [for cp in module.cluster.capacity_providers : cp.id]
+    capacity_providers = jsonencode([for cp in module.cluster.capacity_providers : cp.id])
   }
 }
 
