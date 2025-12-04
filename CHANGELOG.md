@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [6.10.0](https://github.com/terraform-aws-modules/terraform-aws-ecs/compare/v6.9.0...v6.10.0) (2025-11-21)
+
+### Features
+
+* Add support of suspended_state block in aws_appautoscaling_target of ECS service ([#373](https://github.com/terraform-aws-modules/terraform-aws-ecs/issues/373)) ([ba34aa7](https://github.com/terraform-aws-modules/terraform-aws-ecs/commit/ba34aa700994c00dae2bf56c140331a5c6f80d7c))
+
+## [6.9.0](https://github.com/terraform-aws-modules/terraform-aws-ecs/compare/v6.8.0...v6.9.0) (2025-11-17)
+
+### Features
+
+* Add support for CANARY/LINEAR deployment configuration ([#370](https://github.com/terraform-aws-modules/terraform-aws-ecs/issues/370)) ([32a563e](https://github.com/terraform-aws-modules/terraform-aws-ecs/commit/32a563e552831413bee7a0c23b125022bfeb96d9))
+
+## [6.8.0](https://github.com/terraform-aws-modules/terraform-aws-ecs/compare/v6.7.0...v6.8.0) (2025-11-13)
+
+### Features
+
+* Add support for `credentialSpecs` on container definition to enable Windows gMSA ([#368](https://github.com/terraform-aws-modules/terraform-aws-ecs/issues/368)) ([654d7d2](https://github.com/terraform-aws-modules/terraform-aws-ecs/commit/654d7d2b85d5c5a044bfb8526910f09aef2f54bf))
+
 ## [6.7.0](https://github.com/terraform-aws-modules/terraform-aws-ecs/compare/v6.6.2...v6.7.0) (2025-10-22)
 
 ### Features

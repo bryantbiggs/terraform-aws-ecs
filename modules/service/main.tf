@@ -82,6 +82,24 @@ resource "aws_ecs_service" "this" {
       strategy             = deployment_configuration.value.strategy
       bake_time_in_minutes = deployment_configuration.value.bake_time_in_minutes
 
+      dynamic "linear_configuration" {
+        for_each = deployment_configuration.value.linear_configuration != null ? [deployment_configuration.value.linear_configuration] : []
+
+        content {
+          step_bake_time_in_minutes = linear_configuration.value.step_bake_time_in_minutes
+          step_percent              = linear_configuration.value.step_percent
+        }
+      }
+
+      dynamic "canary_configuration" {
+        for_each = deployment_configuration.value.canary_configuration != null ? [deployment_configuration.value.canary_configuration] : []
+
+        content {
+          canary_bake_time_in_minutes = canary_configuration.value.canary_bake_time_in_minutes
+          canary_percent              = canary_configuration.value.canary_percent
+        }
+      }
+
       dynamic "lifecycle_hook" {
         for_each = deployment_configuration.value.lifecycle_hook != null ? deployment_configuration.value.lifecycle_hook : {}
 
@@ -404,6 +422,24 @@ resource "aws_ecs_service" "ignore_task_definition" {
     content {
       strategy             = deployment_configuration.value.strategy
       bake_time_in_minutes = deployment_configuration.value.bake_time_in_minutes
+
+      dynamic "linear_configuration" {
+        for_each = deployment_configuration.value.linear_configuration != null ? [deployment_configuration.value.linear_configuration] : []
+
+        content {
+          step_percent              = linear_configuration.value.step_percent
+          step_bake_time_in_minutes = linear_configuration.value.step_bake_time_in_minutes
+        }
+      }
+
+      dynamic "canary_configuration" {
+        for_each = deployment_configuration.value.canary_configuration != null ? [deployment_configuration.value.canary_configuration] : []
+
+        content {
+          canary_percent              = canary_configuration.value.canary_percent
+          canary_bake_time_in_minutes = canary_configuration.value.canary_bake_time_in_minutes
+        }
+      }
 
       dynamic "lifecycle_hook" {
         for_each = deployment_configuration.value.lifecycle_hook != null ? deployment_configuration.value.lifecycle_hook : {}
@@ -814,6 +850,7 @@ module "container_definition" {
   # Container Definition
   command                = each.value.command
   cpu                    = each.value.cpu
+  credentialSpecs        = each.value.credentialSpecs
   dependsOn              = each.value.dependsOn
   disableNetworking      = each.value.disableNetworking
   dnsSearchDomains       = each.value.dnsSearchDomains
@@ -1490,7 +1527,18 @@ resource "aws_appautoscaling_target" "this" {
   resource_id        = "service/${local.cluster_name}/${try(aws_ecs_service.this[0].name, aws_ecs_service.ignore_task_definition[0].name)}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
-  tags               = var.tags
+
+  dynamic "suspended_state" {
+    for_each = local.enable_autoscaling && var.autoscaling_suspended_state != null ? [var.autoscaling_suspended_state] : []
+
+    content {
+      dynamic_scaling_in_suspended  = suspended_state.value.dynamic_scaling_in_suspended
+      dynamic_scaling_out_suspended = suspended_state.value.dynamic_scaling_out_suspended
+      scheduled_scaling_suspended   = suspended_state.value.scheduled_scaling_suspended
+    }
+  }
+
+  tags = var.tags
 }
 
 resource "aws_appautoscaling_policy" "this" {

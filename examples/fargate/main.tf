@@ -60,7 +60,7 @@ module "ecs_service" {
   # Enables ECS Exec
   enable_execute_command = true
 
-  # for blue/green deployments
+  # Blue/green deployment
   deployment_configuration = {
     strategy             = "BLUE_GREEN"
     bake_time_in_minutes = 2
@@ -325,17 +325,18 @@ module "alb" {
           priority = 1
           actions = [
             {
-              type = "weighted-forward"
-              target_groups = [
-                {
-                  target_group_key = "ex_ecs"
-                  weight           = 100
-                },
-                {
-                  target_group_key = "ex_ecs_alternate"
-                  weight           = 0
-                }
-              ]
+              weighted_forward = {
+                target_groups = [
+                  {
+                    target_group_key = "ex_ecs"
+                    weight           = 100
+                  },
+                  {
+                    target_group_key = "ex_ecs_alternate"
+                    weight           = 0
+                  }
+                ]
+              }
             }
           ]
           conditions = [
@@ -350,13 +351,14 @@ module "alb" {
           priority = 2
           actions = [
             {
-              type = "weighted-forward"
-              target_groups = [
-                {
-                  target_group_key = "ex_ecs_alternate"
-                  weight           = 100
-                }
-              ]
+              weighted_forward = {
+                target_groups = [
+                  {
+                    target_group_key = "ex_ecs_alternate"
+                    weight           = 100
+                  }
+                ]
+              }
             }
           ]
           conditions = [

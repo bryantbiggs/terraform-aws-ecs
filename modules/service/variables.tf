@@ -83,6 +83,14 @@ variable "deployment_configuration" {
   type = object({
     strategy             = optional(string)
     bake_time_in_minutes = optional(string)
+    canary_configuration = optional(object({
+      canary_bake_time_in_minutes = optional(string)
+      canary_percent              = optional(string)
+    }))
+    linear_configuration = optional(object({
+      step_bake_time_in_minutes = optional(string)
+      step_percent              = optional(string)
+    }))
     lifecycle_hook = optional(map(object({
       hook_target_arn  = string
       role_arn         = string
@@ -475,8 +483,9 @@ variable "container_definitions" {
     tags                    = optional(map(string))
 
     # Container definition
-    command = optional(list(string))
-    cpu     = optional(number)
+    command         = optional(list(string))
+    cpu             = optional(number)
+    credentialSpecs = optional(list(string))
     dependsOn = optional(list(object({
       condition     = string
       containerName = string
@@ -1194,6 +1203,16 @@ variable "autoscaling_scheduled_actions" {
     end_time     = optional(string)
     timezone     = optional(string)
   }))
+  default = null
+}
+
+variable "autoscaling_suspended_state" {
+  description = "Configuration block that specifies whether the scaling activities for the service are in a suspended state"
+  type = object({
+    dynamic_scaling_in_suspended  = optional(bool, false)
+    dynamic_scaling_out_suspended = optional(bool, false)
+    scheduled_scaling_suspended   = optional(bool, false)
+  })
   default = null
 }
 

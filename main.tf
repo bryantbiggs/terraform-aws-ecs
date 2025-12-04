@@ -9,7 +9,7 @@ resource "time_sleep" "this" {
   create_duration = var.wait_duration
 
   triggers = {
-    capacity_providers = [for cp in module.cluster.capacity_providers : cp.id]
+    capacity_providers = jsonencode([for cp in module.cluster.capacity_providers : cp.id])
   }
 }
 
@@ -228,6 +228,7 @@ module "service" {
   autoscaling_max_capacity      = each.value.autoscaling_max_capacity
   autoscaling_policies          = each.value.autoscaling_policies
   autoscaling_scheduled_actions = each.value.autoscaling_scheduled_actions
+  autoscaling_suspended_state   = each.value.autoscaling_suspended_state
 
   # Security Group
   create_security_group          = each.value.create_security_group
@@ -252,6 +253,6 @@ module "service" {
   tags = merge(var.tags, each.value.tags)
 
   depends_on = [
-    time_sleep.this[0].triggers["capacity_providers"]
+    time_sleep.this[0]
   ]
 }

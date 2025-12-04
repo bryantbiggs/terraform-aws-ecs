@@ -660,6 +660,14 @@ variable "services" {
     deployment_configuration = optional(object({
       strategy             = optional(string)
       bake_time_in_minutes = optional(string)
+      canary_configuration = optional(object({
+        canary_bake_time_in_minutes = optional(string)
+        canary_percent              = optional(string)
+      }))
+      linear_configuration = optional(object({
+        step_bake_time_in_minutes = optional(string)
+        step_percent              = optional(string)
+      }))
       lifecycle_hook = optional(map(object({
         hook_target_arn  = string
         role_arn         = string
@@ -822,8 +830,9 @@ variable "services" {
       tags                    = optional(map(string))
 
       # Container definition
-      command = optional(list(string))
-      cpu     = optional(number)
+      command         = optional(list(string))
+      cpu             = optional(number)
+      credentialSpecs = optional(list(string))
       dependsOn = optional(list(object({
         condition     = string
         containerName = string
@@ -1235,6 +1244,11 @@ variable "services" {
       end_time     = optional(string)
       timezone     = optional(string)
     })))
+    autoscaling_suspended_state = optional(object({
+      dynamic_scaling_in_suspended  = optional(bool)
+      dynamic_scaling_out_suspended = optional(bool)
+      scheduled_scaling_suspended   = optional(bool)
+    }))
     # Security Group
     create_security_group          = optional(bool)
     vpc_id                         = optional(string)
